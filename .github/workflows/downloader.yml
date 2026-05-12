@@ -7,18 +7,6 @@ on:
         description: '🔗 URL to download'
         required: true
         type: string
-      yt_quality:
-        description: '🎬 Quality preset (for YouTube only)'
-        required: false
-        default: 'Best quality (video+audio)'
-        type: choice
-        options:
-          - 'Best quality (video+audio)'
-          - '1080p (video+audio)'
-          - '720p (video+audio)'
-          - '480p (video+audio)'
-          - 'Audio only (best)'
-          - 'Compatible (720p MP4)'
       clean_bin:
         description: '🧹 Delete all files in bin/ before download'
         required: false
@@ -56,20 +44,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 💾 Cache pip packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-ytdlp
-          restore-keys: ${{ runner.os }}-pip-
-
-      - name: 🛠️ Install tools (ffmpeg, p7zip, yt-dlp, deno, pot-provider)
+      - name: 🛠️ Install tools (p7zip for splitting)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg p7zip-full
-          pip install yt-dlp bgutil-ytdlp-pot-provider
-          curl -fsSL https://deno.land/install.sh | sh
-          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+          sudo apt-get install -y p7zip-full
 
       - name: 🧼 Prepare bin/ and temp
         run: |
@@ -85,7 +63,6 @@ jobs:
           set -euo pipefail
 
           URL="${{ github.event.inputs.url }}"
-          YT_QUALITY="${{ github.event.inputs.yt_quality }}"
           SKIP_EXISTING="${{ github.event.inputs.skip_existing }}"
           RENAME_TO="${{ github.event.inputs.rename_to }}"
           MAX_SIZE_MB="${{ github.event.inputs.max_size_mb }}"
@@ -98,18 +75,6 @@ jobs:
           log_success(){ echo "✅ $1"; }
           log_error() { echo "❌ $1"; exit 1; }
           log_warning(){ echo "⚠️ $1"; }
-
-          get_yt_format() {
-            case "$YT_QUALITY" in
-              "Best quality (video+audio)") echo "bestvideo+bestaudio/best" ;;
-              "1080p (video+audio)")        echo "bestvideo[height<=1080]+bestaudio/best[height<=1080]" ;;
-              "720p (video+audio)")         echo "bestvideo[height<=720]+bestaudio/best[height<=720]" ;;
-              "480p (video+audio)")         echo "bestvideo[height<=480]+bestaudio/best[height<=480]" ;;
-              "Audio only (best)")          echo "bestaudio" ;;
-              "Compatible (720p MP4)")      echo "22" ;;
-              *)                            echo "bestvideo+bestaudio/best" ;;
-            esac
-          }
 
           check_file_size() {
             local file="$1"
@@ -173,27 +138,8 @@ jobs:
 
           cd "$TEMP_DIR"
 
-          if [[ "$URL" =~ (youtube\.com|youtu\.be|instagram\.com) ]]; then
-            log_info "🎬 YouTube/Instagram detected. Using yt-dlp only (no fallback)."
-            YT_FORMAT=$(get_yt_format)
-            if [[ "$URL" =~ instagram\.com ]]; then
-              YT_FORMAT="bestvideo+bestaudio/best"
-            fi
-            yt-dlp --no-playlist -f "$YT_FORMAT" --restrict-filenames -o "%(title)s.%(ext)s" "$URL" || log_error "yt-dlp failed for YouTube/Instagram. Cannot proceed."
-            log_success "Downloaded with yt-dlp"
-          else
-            log_info "🌐 Direct or other link. Trying yt-dlp first..."
-            set +e
-            yt-dlp --no-playlist --restrict-filenames -o "%(title)s.%(ext)s" "$URL"
-            YT_EXIT=$?
-            set -e
-            if [[ $YT_EXIT -eq 0 ]]; then
-              log_success "yt-dlp succeeded"
-            else
-              log_warning "yt-dlp failed (exit $YT_EXIT), falling back to curl"
-              curl -LJO --retry 3 --retry-delay 2 --max-time 300 "$URL" || log_error "curl also failed"
-            fi
-          fi
+          log_info "🌐 Downloading direct link with curl ..."
+          curl -LJO --retry 3 --retry-delay 2 --max-time 300 "$URL" || log_error "curl download failed"
 
           for FILE in *; do
             [[ -f "$FILE" ]] || continue
