@@ -1,0 +1,28 @@
+name: 🧹 Cleanup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  delete-downloads:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove bin folder
+        run: |
+          if [ -d bin ]; then
+            rm -rf bin
+            echo "✅ bin folder deleted"
+          else
+            echo "📭 bin folder does not exist"
+          fi
+      - name: Commit deletion
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "🧹 Cleanup: removed bin folder [skip ci]" || echo "No changes to commit"
+          git pull --rebase --autostash origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}
